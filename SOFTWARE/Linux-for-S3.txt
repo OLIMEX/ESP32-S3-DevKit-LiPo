@@ -1,0 +1,1 @@
+https://github.com/ESP32DE/Boot-Linux-ESP32S3-Playground/blob/main/bins/S3/olimexS3WROOM_N8qdR8ot.bin
