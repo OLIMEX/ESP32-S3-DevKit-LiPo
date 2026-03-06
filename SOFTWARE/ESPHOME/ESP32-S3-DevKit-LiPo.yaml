@@ -1,0 +1,176 @@
+esphome:
+  name: esp32-s3-node
+  comment: Olimex ESP32-S3-DevKit-Lipo power-aware template
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: arduino
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+# ================= SYSTEM =================
+
+logger:
+  baud_rate: 115200
+
+api:
+
+ota:
+
+# ================= WIFI =================
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  ap:
+    ssid: "ESP32-S3 Fallback"
+    password: "fallback123"
+
+  power_save_mode: light
+
+captive_portal:
+
+# ================= USER INPUT =================
+
+binary_sensor:
+
+  # User button
+  - platform: gpio
+    name: "User Button"
+    pin:
+      number: GPIO0
+      mode: INPUT_PULLUP
+      inverted: true
+
+# ================= LED =================
+
+output:
+  - platform: gpio
+    id: led_out
+    pin:
+      number: GPIO38
+      inverted: true
+
+light:
+  - platform: binary
+    id: status_led
+    name: "Status LED"
+    output: led_out
+
+# ================= POWER MONITORING =================
+
+sensor:
+
+  # Battery voltage
+  - platform: adc
+    id: vbat
+    pin: GPIO6
+    attenuation: 11db
+    update_interval: 30s
+    filters:
+      - multiply: 4.133
+    name: "Battery Voltage"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+
+  # External power voltage
+  - platform: adc
+    id: vext
+    pin: GPIO5
+    attenuation: 11db
+    update_interval: 30s
+    filters:
+      - multiply: 1.468
+    name: "External Power Voltage"
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+
+  # Battery percentage
+  - platform: template
+    name: "Battery Level"
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    update_interval: 30s
+    lambda: |-
+      float v = id(vbat).state;
+      float p = (v - 3.2) / (4.2 - 3.2) * 100.0;
+      if (p < 0) p = 0;
+      if (p > 100) p = 100;
+      return p;
+
+# ================= POWER STATUS =================
+
+binary_sensor:
+  - platform: template
+    id: ext_power
+    name: "External Power Present"
+    lambda: |-
+      return id(vext).state > 4.0;
+    update_interval: 10s
+
+# ================= pUEXT BUS =================
+
+uart:
+  - id: puext_uart
+    tx_pin: GPIO17
+    rx_pin: GPIO18
+    baud_rate: 115200
+
+i2c:
+  - id: puext_i2c
+    scl: GPIO47
+    sda: GPIO48
+    scan: true
+    frequency: 400kHz
+
+spi:
+  - id: puext_spi
+    clk_pin: GPIO12
+    mosi_pin: GPIO11
+    miso_pin: GPIO13
+
+# ================= CONNECTION WATCHDOG =================
+
+interval:
+  - interval: 60s
+    then:
+      - if:
+          condition:
+            not:
+              wifi.connected:
+          then:
+            - logger.log: "WiFi lost, restarting..."
+            - button.press: restart_button
+
+button:
+  - platform: restart
+    id: restart_button
+    name: "Restart Device"
+
+# ================= LED STATUS BEHAVIOR =================
+
+interval:
+  - interval: 5s
+    then:
+      - light.toggle: status_led
+
+# ================= BATTERY PROTECTION =================
+
+interval:
+  - interval: 5min
+    then:
+      - if:
+          condition:
+            lambda: |-
+              return id(vbat).state < 3.3;
+          then:
+            - logger.log: "Low battery entering deep sleep"
+            - deep_sleep.enter: deep_sleep_control
+
+deep_sleep:
+  id: deep_sleep_control
+  sleep_duration: 30min
